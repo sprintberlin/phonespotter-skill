@@ -17,7 +17,7 @@ from .orchestrator import PhoneSpotter
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Find verified B2B phone numbers.")
     parser.add_argument(
-        "--config", default="config.yml", help="Path to YAML config. Missing default config uses built-in defaults."
+        "--config", help="Path to YAML config. Built-in defaults are used only when this option is omitted."
     )
     parser.add_argument("--input", help="Contact JSON object. If omitted, JSON is read from stdin.")
     parser.add_argument("--pretty", action="store_true", help="Pretty-print JSON output.")
@@ -31,8 +31,7 @@ def main() -> None:
         if not raw_input.strip():
             raise ValueError("Provide a JSON object with --input or on stdin.")
         payload = json.loads(raw_input)
-        config_path = Path(args.config)
-        config = load_config(config_path if config_path.exists() else None)
+        config = load_config(Path(args.config)) if args.config else load_config()
         contact = ContactInput.model_validate(payload)
         result = PhoneSpotter(config).lookup(contact)
         print(result.model_dump_json(indent=2 if args.pretty else None))

@@ -60,7 +60,10 @@ class OpenRouterWebSearchProvider:
     def __init__(self, config: dict[str, Any]) -> None:
         self.config = config
         self.settings = config["openrouter"]
-        self.api_key = os.getenv(self.settings["api_key_env"], "").strip()
+
+    @property
+    def api_key(self) -> str:
+        return os.getenv(self.settings["api_key_env"], "").strip()
 
     @property
     def available(self) -> bool:
@@ -148,7 +151,10 @@ class LushaProvider:
 
     def __init__(self, config: dict[str, Any]) -> None:
         self.settings = config["lusha"]
-        self.api_key = os.getenv(self.settings["api_key_env"], "").strip()
+
+    @property
+    def api_key(self) -> str:
+        return os.getenv(self.settings["api_key_env"], "").strip()
 
     @property
     def available(self) -> bool:
@@ -171,8 +177,11 @@ class LushaProvider:
             params["lastName"] = contact.last_name
         if contact.email and "@" in contact.email:
             params["email"] = contact.email
-            params["companyDomain"] = contact.email.rsplit("@", 1)[1]
-        elif contact.company:
+            domain = contact.email.rsplit("@", 1)[1].lower()
+            # Freemail domains are not a meaningful company signal. Preserve the supplied company.
+            if domain not in {"gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "live.com", "yahoo.com", "icloud.com", "gmx.de", "web.de"}:
+                params["companyDomain"] = domain
+        if contact.company:
             params["companyName"] = contact.company
         if contact.linkedin_url:
             params["linkedinUrl"] = contact.linkedin_url

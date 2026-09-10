@@ -39,7 +39,6 @@ class PhoneSpotter:
         target = orchestration["target"]
         all_candidates: list[PhoneCandidate] = []
         providers_checked: list[str] = []
-        last_summary: str | None = None
         latest_evaluation: dict[str, Any] | None = None
 
         for provider_name in provider_order:
@@ -63,19 +62,32 @@ class PhoneSpotter:
                 # Empty provider result: no evaluation cost; proceed immediately.
                 continue
 
-            known = {candidate.e164_number for candidate in all_candidates if candidate.e164_number}
-            new_candidates = [candidate for candidate in normalized if candidate.e164_number not in known]
-            all_candidates.extend(new_candidates)
-            if not new_candidates:
-                continue
+            known_by_number = {
+                candidate.e164_number: candidate
+                for candidate in all_candidates
+                if candidate.e164_number
+            }
+            for candidate in normalized:
+                if not candidate.e164_number:
+                    continue
+                existing = known_by_number.get(candidate.e164_number)
+                if existing is None:
+                    all_candidates.append(candidate)
+                    known_by_number[candidate.e164_number] = candidate
+                elif candidate.confidence > existing.confidence or (
+                    candidate.phone_type in {"direct", "mobile"} and existing.phone_type == "company_hq"
+                ):
+                    all_candidates[all_candidates.index(existing)] = candidate
+                    known_by_number[candidate.e164_number] = candidate
 
+            # Every non-empty provider result is evaluated. A later provider may corroborate
+            # or improve the classification of a number returned by an earlier one.
             try:
                 evaluation = self.evaluator.evaluate(contact, all_candidates, target)
             except ProviderError:
                 # Valid candidates remain available for a later provider, but we cannot certify them.
                 continue
             latest_evaluation = evaluation
-            last_summary = evaluation.get("summary")
 
             has_personal = bool(evaluation.get("direct_phone") or evaluation.get("mobile_phone"))
             sufficient = bool(evaluation.get("sufficient"))
@@ -97,7 +109,11 @@ class PhoneSpotter:
                 evaluation=latest_evaluation,
                 candidates=all_candidates,
                 providers_checked=providers_checked,
-                successful_provider=self._source_for_best(latest_evaluation, all_candidates),
+                successful_provider=self._source_for_best(
+                    evaluation,
+                    all_candidates,
+                    mobile_phone or direct_phone or company_phone,
+                ),
                 status=status,
             )
         return EnrichmentResult(
@@ -108,14 +124,13 @@ class PhoneSpotter:
         )
 
     @staticmethod
-    def _source_for_best(evaluation: dict[str, Any], candidates: list[PhoneCandidate]) -> str | None:
-        selected = {
-            evaluation.get("direct_phone"),
-            evaluation.get("mobile_phone"),
-            evaluation.get("company_phone"),
-        }
+    def _source_for_best(
+        evaluation: dict[str, Any], candidates: list[PhoneCandidate], best_phone: str | None
+    ) -> str | None:
+        if not best_phone:
+            return None
         for candidate in reversed(candidates):
-            if candidate.e164_number in selected:
+            if candidate.e164_number == best_phone:
                 return candidate.source
         return None
 

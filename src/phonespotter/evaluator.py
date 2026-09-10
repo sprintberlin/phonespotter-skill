@@ -9,6 +9,7 @@ from typing import Any
 import requests
 
 from .models import ContactInput, PhoneCandidate
+from .normalizer import normalize_phone
 from .providers import ProviderError, _clean_content, _extract_json_object
 
 
@@ -17,7 +18,10 @@ class OpenRouterEvaluator:
 
     def __init__(self, config: dict[str, Any]) -> None:
         self.settings = config["openrouter"]
-        self.api_key = os.getenv(self.settings["api_key_env"], "").strip()
+
+    @property
+    def api_key(self) -> str:
+        return os.getenv(self.settings["api_key_env"], "").strip()
 
     @property
     def available(self) -> bool:
@@ -107,7 +111,8 @@ Reply only as JSON with this exact schema:
         selected: dict[str, Any] = {}
         for field in ("direct_phone", "mobile_phone", "company_phone"):
             value = parsed.get(field)
-            selected[field] = value if isinstance(value, str) and value in known_numbers else None
+            normalized = normalize_phone(value, contact.country or "DE") if isinstance(value, str) else None
+            selected[field] = normalized if normalized in known_numbers else None
         try:
             confidence = max(0.0, min(1.0, float(parsed.get("confidence", 0.0))))
         except (ValueError, TypeError):
