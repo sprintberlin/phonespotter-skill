@@ -99,8 +99,12 @@ If nothing reliable is found, return {{"candidates": []}}."""
 
         payload = {
             "model": self.settings["web_search_model"],
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": [
+                {"role": "system", "content": "You are a precise B2B contact-data researcher. Always use the available web search tool before answering. Never invent data."},
+                {"role": "user", "content": prompt},
+            ],
             "tools": [{"type": "openrouter:web_search", "parameters": tool_parameters}],
+            "tool_choice": "required",
             "temperature": 0,
         }
         try:
