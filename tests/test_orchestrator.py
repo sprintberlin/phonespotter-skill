@@ -67,6 +67,7 @@ def test_company_central_triggers_lusha_fallback() -> None:
     assert result.company_phone == "+4930123456"
     assert result.mobile_phone == "+491711234567"
     assert result.providers_checked == ["openrouter_web_search", "lusha"]
+    assert result.successful_provider == "lusha"
     assert service.evaluator.calls == 2
 
 

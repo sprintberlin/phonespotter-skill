@@ -110,9 +110,11 @@ class PhoneSpotter:
                 candidates=all_candidates,
                 providers_checked=providers_checked,
                 successful_provider=self._source_for_best(
-                    evaluation,
+                    latest_evaluation,
                     all_candidates,
-                    mobile_phone or direct_phone or company_phone,
+                    latest_evaluation.get("mobile_phone")
+                    or latest_evaluation.get("direct_phone")
+                    or latest_evaluation.get("company_phone"),
                 ),
                 status=status,
             )
