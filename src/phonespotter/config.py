@@ -12,8 +12,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "openrouter": {
         "base_url": "https://openrouter.ai/api/v1",
         "api_key_env": "OPENROUTER_API_KEY",
-        "web_search_model": "google/gemini-3.7-flash",
-        "evaluation_model": "google/gemini-3.7-flash",
+        "web_search_model": "~google/gemini-flash-latest",
+        "evaluation_model": "~google/gemini-flash-latest",
         "timeout_seconds": 45,
         "web_search": {
             "engine": "native",
