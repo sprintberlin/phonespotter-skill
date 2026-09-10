@@ -1,0 +1,154 @@
+"""Ordered, cost-conscious provider orchestration."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from .evaluator import OpenRouterEvaluator
+from .models import ContactInput, EnrichmentResult, PhoneCandidate
+from .normalizer import normalize_and_dedupe
+from .providers import LushaProvider, OpenRouterWebSearchProvider, ProviderError
+
+
+class PhoneSpotter:
+    """Run enabled providers in order and stop on a verified direct/mobile number."""
+
+    def __init__(self, config: dict[str, Any]) -> None:
+        self.config = config
+        self.providers = {
+            "openrouter_web_search": OpenRouterWebSearchProvider(config),
+            "lusha": LushaProvider(config),
+        }
+        self.evaluator = OpenRouterEvaluator(config)
+
+    def lookup(self, contact: ContactInput) -> EnrichmentResult:
+        if not contact.full_name and not contact.company:
+            return EnrichmentResult(
+                status="error",
+                error="At least a person name or company is required.",
+            )
+        if not self.evaluator.available:
+            return EnrichmentResult(
+                status="error",
+                error="OpenRouter is not configured. Set the configured API key environment variable.",
+            )
+
+        orchestration = self.config["orchestration"]
+        provider_order = orchestration["provider_order"]
+        minimum_confidence = float(orchestration["minimum_confidence"])
+        target = orchestration["target"]
+        all_candidates: list[PhoneCandidate] = []
+        providers_checked: list[str] = []
+        last_summary: str | None = None
+        latest_evaluation: dict[str, Any] | None = None
+
+        for provider_name in provider_order:
+            provider = self.providers.get(provider_name)
+            if provider is None:
+                continue
+            if provider_name == "lusha" and not provider.can_lookup(contact):
+                continue
+            if provider_name == "openrouter_web_search" and not provider.available:
+                continue
+
+            providers_checked.append(provider_name)
+            try:
+                raw_candidates = provider.lookup(contact)
+            except ProviderError:
+                # Continue with a later provider. Error details must not reveal API internals or secrets.
+                continue
+
+            normalized = normalize_and_dedupe(raw_candidates, contact.country or "DE")
+            if not normalized:
+                # Empty provider result: no evaluation cost; proceed immediately.
+                continue
+
+            known = {candidate.e164_number for candidate in all_candidates if candidate.e164_number}
+            new_candidates = [candidate for candidate in normalized if candidate.e164_number not in known]
+            all_candidates.extend(new_candidates)
+            if not new_candidates:
+                continue
+
+            try:
+                evaluation = self.evaluator.evaluate(contact, all_candidates, target)
+            except ProviderError:
+                # Valid candidates remain available for a later provider, but we cannot certify them.
+                continue
+            latest_evaluation = evaluation
+            last_summary = evaluation.get("summary")
+
+            has_personal = bool(evaluation.get("direct_phone") or evaluation.get("mobile_phone"))
+            sufficient = bool(evaluation.get("sufficient"))
+            if has_personal and sufficient and float(evaluation.get("confidence", 0.0)) >= minimum_confidence:
+                return self._result_from_evaluation(
+                    evaluation=evaluation,
+                    candidates=all_candidates,
+                    providers_checked=providers_checked,
+                    successful_provider=provider_name,
+                    status="found",
+                )
+
+        if latest_evaluation:
+            has_personal = bool(
+                latest_evaluation.get("direct_phone") or latest_evaluation.get("mobile_phone")
+            )
+            status = "found" if has_personal else "partial" if latest_evaluation.get("company_phone") else "not_found"
+            return self._result_from_evaluation(
+                evaluation=latest_evaluation,
+                candidates=all_candidates,
+                providers_checked=providers_checked,
+                successful_provider=self._source_for_best(latest_evaluation, all_candidates),
+                status=status,
+            )
+        return EnrichmentResult(
+            status="not_found",
+            providers_checked=providers_checked,
+            candidates=all_candidates,
+            evaluation_summary="No provider returned a usable phone candidate.",
+        )
+
+    @staticmethod
+    def _source_for_best(evaluation: dict[str, Any], candidates: list[PhoneCandidate]) -> str | None:
+        selected = {
+            evaluation.get("direct_phone"),
+            evaluation.get("mobile_phone"),
+            evaluation.get("company_phone"),
+        }
+        for candidate in reversed(candidates):
+            if candidate.e164_number in selected:
+                return candidate.source
+        return None
+
+    @staticmethod
+    def _result_from_evaluation(
+        *,
+        evaluation: dict[str, Any],
+        candidates: list[PhoneCandidate],
+        providers_checked: list[str],
+        successful_provider: str | None,
+        status: str,
+    ) -> EnrichmentResult:
+        direct_phone = evaluation.get("direct_phone")
+        mobile_phone = evaluation.get("mobile_phone")
+        company_phone = evaluation.get("company_phone")
+        if mobile_phone:
+            best_phone, best_phone_type = mobile_phone, "mobile"
+        elif direct_phone:
+            best_phone, best_phone_type = direct_phone, "direct"
+        elif company_phone:
+            best_phone, best_phone_type = company_phone, "company_hq"
+        else:
+            best_phone, best_phone_type = None, None
+        return EnrichmentResult(
+            status=status,
+            direct_phone=direct_phone,
+            mobile_phone=mobile_phone,
+            company_phone=company_phone,
+            best_phone=best_phone,
+            best_phone_type=best_phone_type,
+            confidence=float(evaluation.get("confidence", 0.0)),
+            providers_checked=providers_checked,
+            successful_provider=successful_provider,
+            candidates=candidates,
+            evaluation_summary=evaluation.get("summary"),
+        )

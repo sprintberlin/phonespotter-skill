@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "phonespotter"
+version = "0.1.0"
+description = "Multi-provider phone enrichment with OpenRouter web search, Lusha fallback, and LLM verification."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "SprintCX", email = "gregor@sprintcx.de" }]
+dependencies = [
+    "pydantic>=2.0.0",
+    "phonenumbers>=8.13.0",
+    "requests>=2.28.0",
+    "pyyaml>=6.0",
+]
+
+[project.scripts]
+phonespotter = "phonespotter.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

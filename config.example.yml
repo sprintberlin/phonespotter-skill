@@ -1,0 +1,31 @@
+# All secrets remain in environment variables. Never place API keys in this file.
+openrouter:
+  base_url: https://openrouter.ai/api/v1
+  api_key_env: OPENROUTER_API_KEY
+  # Gemini with engine: native uses Google's grounded web search through OpenRouter.
+  web_search_model: google/gemini-3.7-flash
+  evaluation_model: google/gemini-3.7-flash
+  timeout_seconds: 45
+  web_search:
+    engine: native
+    max_uses: 2
+    max_results: 5
+    user_location:
+      type: approximate
+      country: DE
+
+lusha:
+  enabled: true
+  api_key_env: LUSHA_API_KEY
+  base_url: https://api.lusha.com/v2/person
+  timeout_seconds: 30
+  require_person_identity: true
+
+orchestration:
+  # A provider with no candidates skips LLM evaluation and proceeds immediately.
+  provider_order:
+    - openrouter_web_search
+    - lusha
+  # Stop after a verified direct or mobile business number. A company central number is retained as fallback.
+  target: direct_or_mobile
+  minimum_confidence: 0.70
