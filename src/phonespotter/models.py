@@ -27,6 +27,12 @@ class PhoneCandidate(BaseModel):
     confidence: float = 0.0
     notes: Optional[str] = None
 
+class ProviderAttempt(BaseModel):
+    provider: str
+    status: Literal["skipped", "no_candidates", "evaluated", "failed"]
+    detail: Optional[str] = None
+
+
 class EnrichmentResult(BaseModel):
     status: Literal["found", "partial", "not_found", "error"]
     direct_phone: Optional[str] = None
@@ -36,6 +42,7 @@ class EnrichmentResult(BaseModel):
     best_phone_type: Optional[str] = None
     confidence: float = 0.0
     providers_checked: List[str] = Field(default_factory=list)
+    provider_attempts: List[ProviderAttempt] = Field(default_factory=list)
     successful_provider: Optional[str] = None
     candidates: List[PhoneCandidate] = Field(default_factory=list)
     evaluation_summary: Optional[str] = None

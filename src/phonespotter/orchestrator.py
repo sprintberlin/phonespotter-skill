@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from .evaluator import OpenRouterEvaluator
-from .models import ContactInput, EnrichmentResult, PhoneCandidate
+from .models import ContactInput, EnrichmentResult, PhoneCandidate, ProviderAttempt
 from .normalizer import normalize_and_dedupe
 from .providers import LushaProvider, OpenRouterWebSearchProvider, ProviderError
 
@@ -39,27 +39,45 @@ class PhoneSpotter:
         target = orchestration["target"]
         all_candidates: list[PhoneCandidate] = []
         providers_checked: list[str] = []
+        provider_attempts: list[ProviderAttempt] = []
         latest_evaluation: dict[str, Any] | None = None
 
         for provider_name in provider_order:
             provider = self.providers.get(provider_name)
             if provider is None:
+                provider_attempts.append(
+                    ProviderAttempt(provider=provider_name, status="skipped", detail="Provider is not implemented.")
+                )
                 continue
             if provider_name == "lusha" and not provider.can_lookup(contact):
+                provider_attempts.append(
+                    ProviderAttempt(
+                        provider=provider_name,
+                        status="skipped",
+                        detail="Provider is unavailable or the contact lacks sufficient identity data.",
+                    )
+                )
                 continue
             if provider_name == "openrouter_web_search" and not provider.available:
+                provider_attempts.append(
+                    ProviderAttempt(provider=provider_name, status="skipped", detail="Provider is not configured.")
+                )
                 continue
 
             providers_checked.append(provider_name)
             try:
                 raw_candidates = provider.lookup(contact)
-            except ProviderError:
+            except ProviderError as exc:
                 # Continue with a later provider. Error details must not reveal API internals or secrets.
+                provider_attempts.append(ProviderAttempt(provider=provider_name, status="failed", detail=str(exc)))
                 continue
 
             normalized = normalize_and_dedupe(raw_candidates, contact.country or "DE")
             if not normalized:
                 # Empty provider result: no evaluation cost; proceed immediately.
+                provider_attempts.append(
+                    ProviderAttempt(provider=provider_name, status="no_candidates", detail="No valid telephone candidate returned.")
+                )
                 continue
 
             known_by_number = {
@@ -84,9 +102,15 @@ class PhoneSpotter:
             # or improve the classification of a number returned by an earlier one.
             try:
                 evaluation = self.evaluator.evaluate(contact, all_candidates, target)
-            except ProviderError:
+            except ProviderError as exc:
                 # Valid candidates remain available for a later provider, but we cannot certify them.
+                provider_attempts.append(
+                    ProviderAttempt(provider=provider_name, status="failed", detail=f"Candidate evaluation failed: {exc}")
+                )
                 continue
+            provider_attempts.append(
+                ProviderAttempt(provider=provider_name, status="evaluated", detail=f"{len(normalized)} valid candidate(s) returned.")
+            )
             latest_evaluation = evaluation
 
             has_personal = bool(evaluation.get("direct_phone") or evaluation.get("mobile_phone"))
@@ -96,6 +120,7 @@ class PhoneSpotter:
                     evaluation=evaluation,
                     candidates=all_candidates,
                     providers_checked=providers_checked,
+                    provider_attempts=provider_attempts,
                     successful_provider=provider_name,
                     status="found",
                 )
@@ -109,6 +134,7 @@ class PhoneSpotter:
                 evaluation=latest_evaluation,
                 candidates=all_candidates,
                 providers_checked=providers_checked,
+                provider_attempts=provider_attempts,
                 successful_provider=self._source_for_best(
                     latest_evaluation,
                     all_candidates,
@@ -121,6 +147,7 @@ class PhoneSpotter:
         return EnrichmentResult(
             status="not_found",
             providers_checked=providers_checked,
+            provider_attempts=provider_attempts,
             candidates=all_candidates,
             evaluation_summary="No provider returned a usable phone candidate.",
         )
@@ -142,6 +169,7 @@ class PhoneSpotter:
         evaluation: dict[str, Any],
         candidates: list[PhoneCandidate],
         providers_checked: list[str],
+        provider_attempts: list[ProviderAttempt],
         successful_provider: str | None,
         status: str,
     ) -> EnrichmentResult:
@@ -165,6 +193,7 @@ class PhoneSpotter:
             best_phone_type=best_phone_type,
             confidence=float(evaluation.get("confidence", 0.0)),
             providers_checked=providers_checked,
+            provider_attempts=provider_attempts,
             successful_provider=successful_provider,
             candidates=candidates,
             evaluation_summary=evaluation.get("summary"),

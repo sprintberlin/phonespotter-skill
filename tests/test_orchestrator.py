@@ -68,6 +68,10 @@ def test_company_central_triggers_lusha_fallback() -> None:
     assert result.mobile_phone == "+491711234567"
     assert result.providers_checked == ["openrouter_web_search", "lusha"]
     assert result.successful_provider == "lusha"
+    assert [(entry.provider, entry.status) for entry in result.provider_attempts] == [
+        ("openrouter_web_search", "evaluated"),
+        ("lusha", "evaluated"),
+    ]
     assert service.evaluator.calls == 2
 
 
@@ -85,4 +89,8 @@ def test_empty_response_skips_evaluation_and_continues() -> None:
 
     assert result.status == "found"
     assert result.providers_checked == ["openrouter_web_search", "lusha"]
+    assert [(entry.provider, entry.status) for entry in result.provider_attempts] == [
+        ("openrouter_web_search", "no_candidates"),
+        ("lusha", "evaluated"),
+    ]
     assert service.evaluator.calls == 1
