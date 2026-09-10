@@ -100,12 +100,14 @@ If nothing reliable is found, return {{"candidates": []}}."""
         payload = {
             "model": self.settings["web_search_model"],
             "messages": [
-                {"role": "system", "content": "You are a precise B2B contact-data researcher. Always use the available web search tool before answering. Never invent data."},
+                {"role": "system", "content": "You are a precise B2B contact-data researcher. Use the available web search tool before answering. Never invent data."},
                 {"role": "user", "content": prompt},
             ],
             "tools": [{"type": "openrouter:web_search", "parameters": tool_parameters}],
-            "tool_choice": "required",
+            # OpenRouter server tools are handled internally. Do not force `required`:
+            # some Gemini routes return finish_reason=error after a forced search.
             "temperature": 0,
+            "max_tokens": 1500,
         }
         try:
             response = requests.post(

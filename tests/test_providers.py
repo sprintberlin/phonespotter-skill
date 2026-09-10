@@ -27,5 +27,6 @@ def test_web_search_forces_a_search_tool_call(monkeypatch):
         "web_search": {"engine": "native", "max_uses": 2, "max_results": 5},
     }})
     assert provider.lookup(ContactInput(company="Example GmbH", country="DE")) == []
-    assert captured["tool_choice"] == "required"
+    assert "tool_choice" not in captured
     assert captured["tools"][0]["type"] == "openrouter:web_search"
+    assert captured["max_tokens"] == 1500
